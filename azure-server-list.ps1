@@ -51,6 +51,9 @@ $Log_Ok = $FALSE
 $Log_Std = $FALSE
 $Log_File = "log.txt"
 
+$Export_CSV = $TRUE
+$Export_CSV_File = "ARM_vm_list.csv"
+
 # print static or dynamic public IP
 $Print_Public_Ip_Method = $FALSE
 
@@ -118,7 +121,7 @@ $Time=Get-Date
 
 
 Echo_Std `n$Time
-
+$All_Instances = @()
 ######################
 # Account
 ######################
@@ -259,7 +262,11 @@ foreach ( $Subscription in $Account.Subscription ) {
                  
         }
        
-       Echo_Ok "$Subscription_Name;$($Instance.ResourceGroupName);$($Instance.Name);$($Instance.PowerState);$Inst_Location;$($Inst_Tags_String);$($Instance.OSProfile.AdminUsername);$Inst_Size;$Inst_CPU;$Inst_MEM;$Inst_Private_Ips;$Inst_Public_Ips"
-    
+       $CurrentInstance="$Subscription_Name;$($Instance.ResourceGroupName);$($Instance.Name);$($Instance.PowerState);$Inst_Location;$($Inst_Tags_String);$($Instance.OSProfile.AdminUsername);$Inst_Size;$Inst_CPU;$Inst_MEM;$Inst_Private_Ips;$Inst_Public_Ips"
+       Echo_Ok $CurrentInstance
+       $All_Instances += $CurrentInstance
     }
+}
+if ($Export_CSV) {
+    $All_Instances | Out-File "$Export_CSV_File"
 }
