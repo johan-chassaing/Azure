@@ -158,7 +158,7 @@ foreach ( $Subscription in $Account.Subscription ) {
     }
     
     Echo_Std "`nInstances infos: "
-    Echo_Info "SubscriptionName;ResourceGroupName;Name;PowerState;Location;TagKey:tagValue;AdminUsername;Size;CPU;MEM;Private_IP;Public_IPs"
+    Echo_Info "#SubscriptionName;ResourceGroupName;Name;PowerState;Location;TagKey:tagValue;AdminUsername;Size;CPU;MEM;Private_IP;Public_IPs"
     
     foreach ( $Instance in $Instances ) {
 
@@ -259,7 +259,7 @@ foreach ( $Subscription in $Account.Subscription ) {
                  
         }
        
-       Echo_Info "$Subscription_Name;$($Instance.ResourceGroupName);$($Instance.Name);$($Instance.PowerState);$Inst_Location;$($Inst_Tags_String);$($Instance.OSProfile.AdminUsername);$Inst_Size;$Inst_CPU;$Inst_MEM;$Inst_Private_Ips;$Inst_Public_Ips"
+       Echo_Ok "$Subscription_Name;$($Instance.ResourceGroupName);$($Instance.Name);$($Instance.PowerState);$Inst_Location;$($Inst_Tags_String);$($Instance.OSProfile.AdminUsername);$Inst_Size;$Inst_CPU;$Inst_MEM;$Inst_Private_Ips;$Inst_Public_Ips"
     
     }
 }
