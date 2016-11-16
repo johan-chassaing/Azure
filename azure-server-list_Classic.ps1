@@ -121,13 +121,13 @@ Echo_Std "`nSubscriptions list: "
 foreach ( $Subscription in $Account.SubscriptionName ) {
 
     Try {
-        Select-AzureSubscription -Default $Subscription
+        Select-AzureSubscription -SubscriptionName "$Subscription"
     } Catch {
         $Error_Message = $_.Exception.Message
         Echo_Error "[Error] - Set subscription failed - $Error_Message"
         exit 1
     }
-    Echo_Info "   $Subscription"
+    Echo_Info "$Subscription"
 
 
 
@@ -135,6 +135,7 @@ foreach ( $Subscription in $Account.SubscriptionName ) {
     # Instances
     ######################
 
+    # Get Azure Vm list
     Try {
         $Instances = Get-AzureVM
     } Catch {
@@ -143,10 +144,34 @@ foreach ( $Subscription in $Account.SubscriptionName ) {
         exit 1
     }
 
-    Echo_Std "`nInstances infos: "
-    foreach ( $Instance in $Instances ) {
-
-        Echo_Info " $Subscription;$($Instance.Name);$($Instance.PowerState);$($Instance.InstanceSize);$($Instance.IpAddress);$($Instance.PublicIPAddress)"
-
+    # Get Azure Instances Size
+    Try {
+        $Role_Size = Get-AzureRoleSize
+    } Catch {
+        $Error_Message = $_.Exception.Message
+        Echo_Error "[Error] - Get role size list - $Error_Message"
+        exit 1
     }
-}    
+
+    Echo_Std "`nInstances infos: "
+    Echo_Info "#Subscription;Name;PowerState;Size;CPU;MEM;Private IP;Public IP"
+    foreach ( $Instance in $Instances ) {
+        # check instance Size
+        $Instance_Size = $($Instance.InstanceSize)
+        $Inst_Size = $Role_Size | Where-Object { $_.InstanceSize -eq "$Instance_Size" }
+        $Inst_CPU = $Inst_Size.Cores
+        $Inst_MEM = $Inst_Size.MemoryInMb
+
+        # get Azure endpoints
+        Try {
+            $Inst_Endpoint = $Instance |  Get-AzureEndpoint
+        } Catch {
+            $Error_Message = $_.Exception.Message
+            Echo_Error "[Error] - Get vm's endpoints - $Error_Message"
+            exit 1
+        }
+        $Inst_PublicIP = $( $Inst_Endpoint |  foreach { $_.Vip } | Get-Unique ) -join "-"
+
+        Echo_Ok "$Subscription;$($Instance.Name);$($Instance.PowerState);$Instance_Size;$Inst_CPU;$Inst_MEM;$($Instance.IpAddress);$Inst_PublicIP"
+    }
+}
