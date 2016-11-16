@@ -142,7 +142,7 @@ foreach ( $Subscription in $Account.Subscription ) {
         Echo_Error "[Error] - Set subscription failed - $Error_Message"
         exit 1
     }
-    Echo_Info " $Subscription_Name"
+    Echo_Info "$Subscription_Name"
 
 
     ######################
@@ -158,8 +158,13 @@ foreach ( $Subscription in $Account.Subscription ) {
     }
     
     Echo_Std "`nInstances infos: "
-    foreach ( $Instance in $Instances ) {
+    Echo_Info "SubscriptionName;ResourceGroupName;Name;PowerState;Location;TagKey:tagValue;AdminUsername;Size;CPU;MEM;Private_IP;Public_IPs"
     
+    foreach ( $Instance in $Instances ) {
+
+        $Inst_Location = $($Instance.Location)
+        $Inst_Size = $($Instance.HardwareProfile.VmSize)
+
         # Manage tags
         $Inst_Tags_String = "" 
         $Inst_Tags = $($Instance.Tags)
@@ -185,7 +190,18 @@ foreach ( $Subscription in $Account.Subscription ) {
                 $Inst_Tags_String += "$separator$($Tag):$($Tag_value)"
             } 
         }
-    
+
+        # Get Azure Instance Size
+        Try {
+            $VM_Size = Get-AzureRmVMSize -Location $Inst_Location | Where-Object { $_.Name -eq "$Inst_Size" }
+        } Catch {
+            $Error_Message = $_.Exception.Message
+            Echo_Error "[Error] - Get VM size list - $Error_Message"
+            exit 1
+        }
+        $Inst_CPU = $VM_Size.NumberOfCores
+        $Inst_MEM = $VM_Size.MemoryInMB
+
         # Manage IP addresses
         #
         $Inst_Private_Ips = "" 
@@ -243,7 +259,7 @@ foreach ( $Subscription in $Account.Subscription ) {
                  
         }
        
-       Echo_Info "$Subscription_Name;$($Instance.ResourceGroupName);$($Instance.Name);$($Instance.PowerState);$($Instance.Location);$($Inst_Tags_String);$($Instance.OSProfile.AdminUsername);$($Instance.HardwareProfile.VmSize);$Inst_Private_Ips;$Inst_Public_Ips"
+       Echo_Info "$Subscription_Name;$($Instance.ResourceGroupName);$($Instance.Name);$($Instance.PowerState);$Inst_Location;$($Inst_Tags_String);$($Instance.OSProfile.AdminUsername);$Inst_Size;$Inst_CPU;$Inst_MEM;$Inst_Private_Ips;$Inst_Public_Ips"
     
     }
 }
