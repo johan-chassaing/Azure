@@ -49,6 +49,9 @@ $Log_Std = $FALSE
 $Log_File = "log.txt"
 
 
+$Export_CSV = $TRUE
+$Export_CSV_File = "ACM_vm_list.csv"
+
 ##########################################
 #
 #               Functions
@@ -106,7 +109,7 @@ $Time=Get-Date
 
 
 Echo_Std `n$Time
-
+$All_Instances = @()
 ######################
 # Account
 ######################
@@ -172,6 +175,11 @@ foreach ( $Subscription in $Account.SubscriptionName ) {
         }
         $Inst_PublicIP = $( $Inst_Endpoint |  foreach { $_.Vip } | Get-Unique ) -join "-"
 
-        Echo_Ok "$Subscription;$($Instance.Name);$($Instance.PowerState);$Instance_Size;$Inst_CPU;$Inst_MEM;$($Instance.IpAddress);$Inst_PublicIP"
+        $CurrentInstance="$Subscription;$($Instance.Name);$($Instance.PowerState);$Instance_Size;$Inst_CPU;$Inst_MEM;$($Instance.IpAddress);$Inst_PublicIP"
+        Echo_Ok $CurrentInstance
+        $All_Instances += $CurrentInstance
     }
+}
+if ($Export_CSV) {
+    $All_Instances | Out-File "$Export_CSV_File"
 }
