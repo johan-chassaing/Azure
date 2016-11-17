@@ -50,7 +50,7 @@ $Log_File = "log.txt"
 
 
 $Export_CSV = $TRUE
-$Export_CSV_File = "ACM_vm_list.csv"
+$Export_CSV_File = "azure_vm_list.csv"
 
 ##########################################
 #
@@ -181,5 +181,5 @@ foreach ( $Subscription in $Account.SubscriptionName ) {
     }
 }
 if ($Export_CSV) {
-    $All_Instances | Out-File "$Export_CSV_File"
+    $All_Instances | Out-File -Append "$Export_CSV_File"
 }

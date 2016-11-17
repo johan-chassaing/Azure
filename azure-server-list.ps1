@@ -52,7 +52,7 @@ $Log_Std = $FALSE
 $Log_File = "log.txt"
 
 $Export_CSV = $TRUE
-$Export_CSV_File = "ARM_vm_list.csv"
+$Export_CSV_File = "azure_vm_list.csv"
 
 # print static or dynamic public IP
 $Print_Public_Ip_Method = $FALSE
@@ -268,5 +268,5 @@ foreach ( $Subscription in $Account.Subscription ) {
     }
 }
 if ($Export_CSV) {
-    $All_Instances | Out-File "$Export_CSV_File"
+    $All_Instances | Out-File -Append "$Export_CSV_File"
 }
