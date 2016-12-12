@@ -11,9 +11,9 @@
 #    Powershell, Azure cmdlet
 #
 #  Info: 
-#    Print azure Classic instances information 
-#      Subscription, name, powerstate, size,
-#      ip private/public
+#    Print azure classic (ASM) instances
+#    List all your azure ASM virtual machines 
+#    information for each subscription 
 #
 #
 ##########################################
@@ -48,9 +48,13 @@ $Log_Ok = $FALSE
 $Log_Std = $FALSE
 $Log_File = "log.txt"
 
-
 $Export_CSV = $TRUE
 $Export_CSV_File = "azure_vm_list.csv"
+
+# output formating with automatic tag listing
+# add empty column with "_empty_" field
+$Output_Fields = "CloudProvider","Subscription","RessourceGroup","Name","_empty_","PowerState","Location","AdminUsername","Size","Cores","Memory","private_ips","public_ips","public_ips_methods"
+
 
 ##########################################
 #
@@ -114,7 +118,7 @@ $All_Instances = @()
 # Account
 ######################
 
-$Account = Get-AzureSubscription
+$Account = Get-AzureSubscription -ErrorAction Stop
 if ( -Not $Account ){
     Echo_Error "[Error] - Get account information - Please add azure account with Add-AzureAccount"
     exit 1
@@ -124,7 +128,7 @@ Echo_Std "`nSubscriptions list: "
 foreach ( $Subscription in $Account.SubscriptionName ) {
 
     Try {
-        Select-AzureSubscription -SubscriptionName "$Subscription"
+        $AzureSub = Select-AzureSubscription -SubscriptionName "$Subscription" -ErrorAction Stop
     } Catch {
         $Error_Message = $_.Exception.Message
         Echo_Error "[Error] - Set subscription failed - $Error_Message"
@@ -132,15 +136,13 @@ foreach ( $Subscription in $Account.SubscriptionName ) {
     }
     Echo_Info "$Subscription"
 
-
-
     ######################
     # Instances
     ######################
 
     # Get Azure Vm list
     Try {
-        $Instances = Get-AzureVM
+        $Instances = Get-AzureVM -Verbose -ErrorAction Stop
     } Catch {
         $Error_Message = $_.Exception.Message
         Echo_Error "[Error] - Get instances list - $Error_Message"
@@ -149,7 +151,7 @@ foreach ( $Subscription in $Account.SubscriptionName ) {
 
     # Get Azure Instances Size
     Try {
-        $Role_Size = Get-AzureRoleSize
+        $Role_Size = Get-AzureRoleSize -ErrorAction Stop
     } Catch {
         $Error_Message = $_.Exception.Message
         Echo_Error "[Error] - Get role size list - $Error_Message"
@@ -157,27 +159,82 @@ foreach ( $Subscription in $Account.SubscriptionName ) {
     }
 
     Echo_Std "`nInstances infos: "
-    Echo_Info "#Subscription;Name;PowerState;Size;CPU;MEM;Private IP;Public IP"
+    # print fields
+    Echo_Info "#$($Output_Fields -join ";")"
+
     foreach ( $Instance in $Instances ) {
-        # check instance Size
-        $Instance_Size = $($Instance.InstanceSize)
-        $Inst_Size = $Role_Size | Where-Object { $_.InstanceSize -eq "$Instance_Size" }
-        $Inst_CPU = $Inst_Size.Cores
-        $Inst_MEM = $Inst_Size.MemoryInMb
+        $CurrentInstance=@{}
+
+        $CurrentInstance.Add("Subscription"   , $Subscription)
+        $CurrentInstance.Add("Name"           , $Instance.Name)
+        $CurrentInstance.Add("PowerState"     , $Instance.PowerState)
+
+        $CurrentInstance.Add("Size"           , $Instance.InstanceSize)
+        $VM_Size = $Role_Size | Where-Object { $_.InstanceSize -eq "$($CurrentInstance["Size"])" }
+        $CurrentInstance.Add("Cores"  , $VM_Size.Cores)
+        $CurrentInstance.Add("Memory" , $VM_Size.MemoryInMb)
 
         # get Azure endpoints
         Try {
-            $Inst_Endpoint = $Instance |  Get-AzureEndpoint
+            $Vm_Endpoint = $Instance |  Get-AzureEndpoint -ErrorAction Stop
         } Catch {
             $Error_Message = $_.Exception.Message
             Echo_Error "[Error] - Get vm's endpoints - $Error_Message"
             exit 1
         }
-        $Inst_PublicIP = $( $Inst_Endpoint |  foreach { $_.Vip } | Get-Unique ) -join "-"
 
-        $CurrentInstance="$Subscription;$($Instance.Name);$($Instance.PowerState);$Instance_Size;$Inst_CPU;$Inst_MEM;$($Instance.IpAddress);$Inst_PublicIP"
-        Echo_Ok $CurrentInstance
-        $All_Instances += $CurrentInstance
+        # private ip
+        if (-Not $($CurrentInstance.private_ips) ){
+            $separator=""
+        }else{
+            $separator=","
+        }
+        $CurrentInstance.private_ips += "$separator$($Instance.IpAddress)"
+
+        # public ip
+        if (-Not $($CurrentInstance.public_ips) ){
+            $separator=""
+        }else{
+            $separator=","
+        }
+
+        $CurrentInstance.public_ips += "$separator$($Interface_info.IpAddress)"
+
+        # Generate output
+        $output = ""
+
+        foreach ( $field in $output_fields ){
+            #echo "$field"
+            # define separator
+            if ( $output -eq "" ){
+                $separator = ""
+            } else {
+                $separator = ";"
+            }
+
+            # define space
+            if ( $field -eq "_empty_" ){
+              $output += "$separator"
+              #echo "-> _empty_"
+            } elseif ( $field -eq "CloudProvider" ){
+              $output += "$($separator)Azure-ASM"
+              #echo "-> _empty_"
+            } elseif ( $field -eq "" ){
+              $output += "$($separator)empty tagname"
+              #echo "-> empty"
+            } elseif ( -Not $CurrentInstance.ContainsKey($field) ){
+                #tag not defined
+                $output += "$($separator)N/D"
+                #echo "-> N/D"
+            } else {
+                $output += "$separator$($CurrentInstance[$field])"
+                #echo "-> $($CurrentInstance[$field])"
+            }
+        }
+
+        Echo_Ok $output
+        $All_Instances += $output
+
     }
 }
 if ($Export_CSV) {

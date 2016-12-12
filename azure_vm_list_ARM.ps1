@@ -11,7 +11,8 @@
 #    Powershell, Azure cmdlet
 #
 #  Info: 
-#    Print azure Resource Manager instances 
+#    Print azure Resource Manager (ARM) instances
+#    List all your azure ARM virtual machines 
 #    information for each subscription 
 #    
 #     Subscription, Resource Group, name, 
@@ -54,14 +55,16 @@ $Log_File = "log.txt"
 $Export_CSV = $TRUE
 $Export_CSV_File = "azure_vm_list.csv"
 
-# print static or dynamic public IP
-$Print_Public_Ip_Method = $FALSE
+# output formating with automatic tag listing
+# add empty column with "_empty_" field
+$Output_Fields = "CloudProvider","Subscription","RessourceGroup","Name","_empty_"+$Tag_Filter+"PowerState","Location","AdminUsername","Size","Cores","Memory","private_ips","public_ips","public_ips_methods"
 
-# To specify the tags in specific order
-# let empty for automatic listing
-$Tag_Order = "info1","info2"
-#$Tag_Order = ""
+# To specify the tags in specific order fill in $Tag_Filter with tags' name
+# To print tags, add the tags' name in the $output_fields
+# Or let it empty for automatic listing
 
+#$Tag_Filter = "info1","info2"
+$Tag_Filter = @()
 
 ##########################################
 #
@@ -98,7 +101,6 @@ function Echo_std ($text) {
     }
 }
 
-
 ##########################################
 #
 #                 Main
@@ -127,7 +129,7 @@ $All_Instances = @()
 ######################
 
 Try {
-    $Account = Get-AzureRmContext
+    $Account = Get-AzureRmContext -ErrorAction Stop
 } Catch {
     $Error_Message = $_.Exception.message
     Echo_Error "[Error] - Get account information - $Error_Message"
@@ -139,97 +141,108 @@ foreach ( $Subscription in $Account.Subscription ) {
     $Subscription_Name = $($Subscription.SubscriptionName)
 
     Try {
-        Set-AzureRmContext -SubscriptionName "$Subscription_Name"
+        $AzureRmContext = Set-AzureRmContext -SubscriptionName "$Subscription_Name" -ErrorAction Stop
     } Catch {
         $Error_Message = $_.Exception.Message
         Echo_Error "[Error] - Set subscription failed - $Error_Message"
         exit 1
     }
+    Echo_Std "`nSubscription: "
     Echo_Info "$Subscription_Name"
-
 
     ######################
     # Instances
     ######################
     
     Try {
-        $Instances = Get-AzureRmVm
+        $Instances = Get-AzureRmVm -Verbose -ErrorAction Stop
     } Catch {
         $Error_Message = $_.Exception.Message
         Echo_Error "[Error] - Get instances list - $Error_Message"
         exit 1
     }
-    
+
     Echo_Std "`nInstances infos: "
-    Echo_Info "#SubscriptionName;ResourceGroupName;Name;PowerState;Location;TagKey:tagValue;AdminUsername;Size;CPU;MEM;Private_IP;Public_IPs"
+    # print fields
+    Echo_Info "#$($Output_Fields -join ";")"
     
     foreach ( $Instance in $Instances ) {
 
-        $Inst_Location = $($Instance.Location)
-        $Inst_Size = $($Instance.HardwareProfile.VmSize)
+        $CurrentInstance=@{}
 
-        # Manage tags
-        $Inst_Tags_String = "" 
-        $Inst_Tags = $($Instance.Tags)
-    
-        if (-Not ($Tag_Order) ) {
-            # not ordered tags
-            $Inst_Tags_String = ( ( $Inst_Tags.Keys | foreach { "$_`:$($Inst_Tags[$_])" }) -join ";" )
+        $CurrentInstance.Add("Subscription"   , $Subscription_Name)
+        $CurrentInstance.Add("RessourceGroup" , $Instance.ResourceGroupName)
+        $CurrentInstance.Add("Name"           , $Instance.Name)
+
+        # Get Azure Instance Status
+        Try {
+            $VM_status = Get-AzureRmVM -ResourceGroupName $CurrentInstance.RessourceGroup -Name $CurrentInstance.Name -Status -ErrorAction Stop `                           | select -ExpandProperty statuses | Where-Object {$_.Code -match "PowerState"} `                           | select -ExpandProperty displaystatus
+        } Catch {
+            $Error_Message = $_.Exception.Message
+            Echo_Error "[Error] - Get VM Status - $Error_Message"
+            exit 1
+        }
+
+        $CurrentInstance.Add("PowerState"     , $VM_status)
+        $CurrentInstance.Add("Location"       , $Instance.Location)
+        $CurrentInstance.Add("AdminUsername"  , $Instance.OSProfile.AdminUsername)
+        $CurrentInstance.Add("Size"           , $Instance.HardwareProfile.VmSize)
+
+        if (-Not ($Tag_Filter) ) {
+            # not filtered tags
+            $Tag_Filter = @()
+            $Instance.Tags.Keys | foreach {
+                $CurrentInstance.Add("$_", $Instance.Tags[$_])
+                $Tag_Filter += $_
+            }
+
         } else {
-            # ordered tags 
-            foreach ( $Tag in $Tag_Order) {
+            # filtered tags
+            foreach ( $Tag in $Tag_Filter) {
+
                 # if not exist return Not Defined
-                if ( !( $Inst_Tags.ContainsKey($tag) ) ) {
-                    $Tag_value = "N/D"
-                } else { 
-                    $Tag_value = $Inst_Tags.$Tag
+                if ( !( $Instance.Tags.ContainsKey($Tag) ) ) {
+                    $CurrentInstance.Add("$Tag", "N/D")
+                } else {
+                    $CurrentInstance.Add("$Tag", "$($Instance.Tags.$Tag)")
                 }
-                # set tag separator
-                if (-Not ($Inst_Tags_String)){
-                    $separator=""
-                }else{
-                    $separator=";"
-                }
-                $Inst_Tags_String += "$separator$($Tag):$($Tag_value)"
             } 
         }
 
-        # Get Azure Instance Size
         Try {
-            $VM_Size = Get-AzureRmVMSize -Location $Inst_Location | Where-Object { $_.Name -eq "$Inst_Size" }
+            $VM_Size = Get-AzureRmVMSize -Location $CurrentInstance.Location -ErrorAction Stop | Where-Object { $_.Name -eq "$($CurrentInstance.Size)" }
         } Catch {
             $Error_Message = $_.Exception.Message
             Echo_Error "[Error] - Get VM size list - $Error_Message"
             exit 1
         }
-        $Inst_CPU = $VM_Size.NumberOfCores
-        $Inst_MEM = $VM_Size.MemoryInMB
+        $CurrentInstance.Add("Cores"  , $VM_Size.NumberOfCores)
+        $CurrentInstance.Add("Memory" , $VM_Size.MemoryInMB)
+        $CurrentInstance.Add("private_ips" , "")
+        $CurrentInstance.Add("public_ips"  , "")
+        $CurrentInstance.Add("public_ips_methods"  , "")
 
-        # Manage IP addresses
-        #
-        $Inst_Private_Ips = "" 
-        $Inst_Public_Ips = "" 
         foreach ( $Interface_Path in $($Instance.NetworkInterfaceIDs ))  {
             # Private ip
             $Interface_Path = $Interface_Path.Split("/")
-         
+
             $Interface_Name = $Interface_Path[8]
             $Interface_ResourceGroup = $Interface_Path[4]
             
             Try {
-                $Interface_Info = Get-AzureRmNetworkInterface -Name $Interface_Name -ResourceGroupName $Interface_ResourceGroup
+                $Interface_Info = Get-AzureRmNetworkInterface -Name $Interface_Name -ResourceGroupName $Interface_ResourceGroup -ErrorAction Stop
             } Catch {
                 $Error_Message = $_.Exception.message
-                Echo_Error "[Error] - Get Network interface information #$Interface_name - $Error_Message"
+                Echo_Error "[Error] - Get Private network interface information #$Interface_name - $Error_Message"
                 exit 1
             }
             
-            if (-Not ($Inst_Private_Ips)){
+            if (-Not $($CurrentInstance.private_ips) ){
                 $separator=""
             }else{
                 $separator=","
             }
-            $Inst_Private_Ips += "$separator$($Interface_info.IpConfigurations[0].PrivateIpAddress)"
+            $CurrentInstance.private_ips += "$separator$($Interface_info.IpConfigurations[0].PrivateIpAddress)"
     
     
             # public ip
@@ -240,31 +253,58 @@ foreach ( $Subscription in $Account.Subscription ) {
             $Interface_ResourceGroup = $Interface_Path[4]
     
             Try {
-                $Interface_Info = Get-AzureRmPublicIpAddress -Name $Interface_Name -ResourceGroupName $Interface_ResourceGroup
+                $Interface_Info = Get-AzureRmPublicIpAddress -Name $Interface_Name -ResourceGroupName $Interface_ResourceGroup -ErrorAction Stop
             } Catch {
                 $Error_Message = $_.Exception.message
-                Echo_Error "[Error] - Get Network interface information #$Interface_name - $Error_Message"
+                Echo_Error "[Error] - Get Public network interface information #$Interface_name - $Error_Message"
                 exit 1
             } 
     
-            if (-Not ($Inst_Public_Ips)){
+            if (-Not $($CurrentInstance.public_ips) ){
                 $separator=""
             }else{
                 $separator=","
             }
-            if (-Not ($Print_Public_Ip_Method)){
-                $Interface_Method=""
-            } else {
-                $Interface_Method="$($Interface_info.PublicIpAllocationMethod):"
-            }
-    
-            $Inst_Public_Ips += "$separator$Interface_Method$($Interface_info.IpAddress)"
-                 
+
+            $CurrentInstance.public_ips_methods += "$separator$($Interface_info.PublicIpAllocationMethod)"
+            $CurrentInstance.public_ips += "$separator$($Interface_info.IpAddress)"
+
         }
-       
-       $CurrentInstance="$Subscription_Name;$($Instance.ResourceGroupName);$($Instance.Name);$($Instance.PowerState);$Inst_Location;$($Inst_Tags_String);$($Instance.OSProfile.AdminUsername);$Inst_Size;$Inst_CPU;$Inst_MEM;$Inst_Private_Ips;$Inst_Public_Ips"
-       Echo_Ok $CurrentInstance
-       $All_Instances += $CurrentInstance
+
+        # Generate output
+        $output = ""
+
+        foreach ( $field in $output_fields ){
+            #echo "$field"
+            # define separator
+            if ( $output -eq "" ){
+                $separator = ""
+            } else {
+                $separator = ";"
+            }
+
+            # define space
+            if ( $field -eq "_empty_" ){
+              $output += "$separator"
+              #echo "-> _empty_"
+            } elseif ( $field -eq "CloudProvider" ){
+              $output += "$($separator)Azure-ARM"
+              #echo "-> _empty_"
+            } elseif ( $field -eq "" ){
+              $output += "$($separator)empty tagname"
+              #echo "-> empty"
+            } elseif ( -Not $CurrentInstance.ContainsKey($field) ){
+                #tag not defined
+                $output += "$($separator)N/D"
+                #echo "-> N/D"
+            } else {
+                $output += "$separator$($CurrentInstance[$field])"
+                #echo "-> $($CurrentInstance[$field])"
+            }
+        }
+
+        Echo_Ok $output
+        $All_Instances += $output
     }
 }
 if ($Export_CSV) {
